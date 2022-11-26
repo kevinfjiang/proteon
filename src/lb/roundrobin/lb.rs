@@ -1,20 +1,16 @@
-use crate::lb::roundrobin::{RoundRobinBackend, RoundRobinServer};
 use crate::lb::backend::loadbalancer::LoadBalancer;
+use crate::lb::roundrobin::{RoundRobinBackend, RoundRobinServer};
 
 use std::error::Error;
-use std::slice::Iter;
 use std::net::SocketAddr;
-
-struct KeyError { key: String }
+use std::vec::IntoIter;
 
 impl LoadBalancer for RoundRobinBackend {
     type Server = RoundRobinServer;
+    type It = IntoIter<SocketAddr>;
     fn get(&mut self) -> Option<SocketAddr> {
         self.last_used = (self.last_used + 1) % self.backends.len();
-        match self.addresses.get(self.last_used) {
-            Some(server) => Some(server.to_owned()),
-            None => None,
-        }
+        self.addresses.get(self.last_used).map(|server| server.to_owned())
     }
     fn add(&mut self, balance_server: RoundRobinServer) -> Result<(), Box<dyn Error>> {
         self.addresses.push(balance_server.addr);
@@ -26,10 +22,11 @@ impl LoadBalancer for RoundRobinBackend {
         self.addresses.retain(|&x| x != balance_server.addr);
         match self.backends.remove(&balance_server.addr) {
             Some(_) => Ok(()),
-            None => Err(Box::new(
-                std::io::Error::new(std::io::ErrorKind::NotFound,
-                format!("Key `{}` not found and I have no better error, this is fine", balance_server.addr)
-            ))) // This is my low, making the mistake of Box<dyn Error> and getting punsihed for laziness
+            None => Err(format!(
+                "Key `{}` not found and I have no better error, this is fine",
+                balance_server.addr
+            )
+            .into()),
         }
     }
     fn mark_living(&mut self, _address: SocketAddr) -> Result<(), Box<dyn Error>> {
@@ -43,7 +40,7 @@ impl LoadBalancer for RoundRobinBackend {
         Ok(())
     }
 
-    fn iter<'a>(&'a self) -> Iter<'a, SocketAddr> {
-        self.addresses.iter()
+    fn iter(&self) -> IntoIter<SocketAddr> {
+        self.addresses.clone().into_iter()
     }
 }
