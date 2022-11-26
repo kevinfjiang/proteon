@@ -1,9 +1,9 @@
 mod lb;
 
-use redis::RedisError;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 
+use redis::RedisError;
 
 pub struct RoundRobinServer {
     addr: SocketAddr,

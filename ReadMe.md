@@ -5,6 +5,7 @@ Lightweight and fast loadbalancer written completely in rust. Takes advantage of
 Full extensible, with trait/interfaces defining behavior necessary to extend the project, either connection-wise or load balancing wise. Will be experimenting with additional loadbalancing techniques
 Publishing to the redis backend will automatically add the struct the load balancer. You can parse the redis published messages into a struct to be added to the server pools.
 
+Based of `Nucleon` and `Convey` rust load balancing projects
 
 
 ## To run:
@@ -25,5 +26,5 @@ I wanted to improve my Rust skills and learn further about load balancers. This 
 
 ## Todos
 - Adding load balancing/communication techniques
-- Tests
+- Tests, add wrappers around all external libs
 - Comments

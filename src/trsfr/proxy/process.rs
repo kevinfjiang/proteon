@@ -1,13 +1,13 @@
-use crate::trsfr::proxy::Proxy;
 use crate::lb::backend::loadbalancer::LoadBalancer;
-use crate::trsfr::serve::ConnectMethod::ConnectMethod;
+use crate::trsfr::proxy::Proxy;
+use crate::trsfr::serve::transfermethod::TransferMethod;
 
 use async_trait::async_trait;
 use log::{debug, error};
 
-use std::sync::Arc;
-use std::net::SocketAddr;
 use std::error::Error;
+use std::net::SocketAddr;
+use std::sync::Arc;
 
 use tokio::io;
 use tokio::net::{TcpListener, TcpStream};
@@ -15,16 +15,15 @@ use tokio::sync::RwLock;
 use tokio::try_join;
 
 #[async_trait]
-impl ConnectMethod for Proxy {
+impl TransferMethod for Proxy {
     fn listener(&self) -> SocketAddr {
-        self.listener.clone()
+        self.listener
     }
 
     async fn run_server<LB: LoadBalancer + 'static>(
         &self,
         backend: Arc<RwLock<LB>>,
     ) -> Result<(), Box<dyn Error>> {
-
         let listener_addr = self.listener();
         debug!("Listening on: {:?}", listener_addr.ip());
         let listener = TcpListener::bind(listener_addr).await?;
