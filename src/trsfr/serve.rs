@@ -1,16 +1,18 @@
-pub mod ConnectMethod {
+use log::error;
+use std::error::Error;
+use std::net::SocketAddr;
+use std::sync::Arc;
+
+use tokio::sync::RwLock;
+
+pub mod transfermethod {
+    use super::*;
     use crate::lb::backend::loadbalancer::LoadBalancer;
 
     use async_trait::async_trait;
 
-    use std::error::Error;
-
-    use std::net::SocketAddr;
-    use std::sync::Arc;
-    use tokio::sync::RwLock;
-
     #[async_trait]
-    pub trait ConnectMethod: Send + Sync {
+    pub trait TransferMethod: Send + Sync {
         fn listener(&self) -> SocketAddr;
         async fn run_server<LB: LoadBalancer + 'static>(
             &self,
@@ -19,28 +21,23 @@ pub mod ConnectMethod {
     }
 }
 
-pub mod Server {
-    use super::ConnectMethod::ConnectMethod;
-    use crate::lb::backend::{loadbalancer::LoadBalancer, serverpool::Pool};
-    use crate::redisconn::redisconn::redis_pubsub_loop;
+pub mod server {
+    use super::transfermethod::TransferMethod;
+    use super::*;
 
-    use log::error;
-
-    use std::error::Error;
-    use std::sync::Arc;
+    use crate::lb::backend::{check_backend_health, loadbalancer::LoadBalancer, serverpool::Pool};
+    use crate::redisconn::dbconn::redis_pubsub_loop;
 
     macro_rules! async_loop_if_err {
         ($x:expr, $msg: expr) => {
             if let Err(e) = ($x).await {
                 error!(concat!($msg, ": {}"), e)
             };
-        }
+        };
     }
 
-
-
     #[tokio::main]
-    pub async fn start_server<LB: LoadBalancer + 'static, CM: ConnectMethod + 'static>(
+    pub async fn start_server<LB: LoadBalancer + 'static, CM: TransferMethod + 'static>(
         mut pool: Pool<LB>,
         connect: CM,
         redis_client: Arc<redis::Client>,
@@ -48,12 +45,18 @@ pub mod Server {
         let m_backend = Arc::clone(&pool.backend);
         let backend = Arc::clone(&pool.backend);
 
-
         tokio::spawn(async move {
-            async_loop_if_err!(redis_pubsub_loop(redis_client.clone(), m_backend), "Redis Listen loop died");
+            async_loop_if_err!(
+                redis_pubsub_loop(redis_client.clone(), m_backend),
+                "Redis Listen loop died"
+            );
         });
         tokio::spawn(async move {
-            async_loop_if_err!(pool.update_health_loop(), "Error checking healthy servers");
+            // We will have to decouple these
+            async_loop_if_err!(
+                pool.update_health_loop(check_backend_health),
+                "Error checking healthy servers"
+            );
         });
 
         async_loop_if_err!(connect.run_server(backend), "Load balancing server died");
@@ -61,5 +64,3 @@ pub mod Server {
         Ok(())
     }
 }
-
-

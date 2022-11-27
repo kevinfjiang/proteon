@@ -11,4 +11,3 @@ impl Proxy {
         Proxy { listener }
     }
 }
-
