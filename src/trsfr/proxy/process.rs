@@ -1,11 +1,10 @@
 use crate::lb::backend::loadbalancer::LoadBalancer;
 use crate::trsfr::proxy::Proxy;
-use crate::trsfr::serve::transfermethod::TransferMethod;
+use crate::trsfr::serve::transfermethod::{TransferMethod, BalanceError};
 
 use async_trait::async_trait;
 use log::{debug, error};
 
-use std::error::Error;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -14,6 +13,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::RwLock;
 use tokio::try_join;
 
+
 #[async_trait]
 impl TransferMethod for Proxy {
     fn listener(&self) -> SocketAddr {
@@ -21,9 +21,8 @@ impl TransferMethod for Proxy {
     }
 
     async fn run_server<LB: LoadBalancer + 'static>(
-        &self,
-        backend: Arc<RwLock<LB>>,
-    ) -> Result<(), Box<dyn Error>> {
+        &self, backend: Arc<RwLock<LB>>,
+    ) -> Result<(), BalanceError<LB>> {
         let listener_addr = self.listener();
         debug!("Listening on: {:?}", listener_addr.ip());
         let listener = TcpListener::bind(listener_addr).await?;
@@ -44,7 +43,7 @@ impl TransferMethod for Proxy {
 async fn process<LB: LoadBalancer>(
     mut inbound: TcpStream,
     thread_backend: Arc<RwLock<LB>>,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<(), BalanceError<LB>> {
     let mut srvrs = thread_backend.write().await;
 
     if let Some(server_addr) = srvrs.get() {

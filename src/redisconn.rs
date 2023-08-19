@@ -64,7 +64,7 @@ async fn handle_message<LB: LoadBalancer + 'static>(
     //TODO add logging and clean up code
     backend: Arc<RwLock<LB>>,
     msg: &redis::Msg,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<(), LB::Err> {
     match extract_msg::<LB>(msg) {
         Ok(("backend_add", payload)) => {
             let mut srvs = backend.write().await;
@@ -101,11 +101,12 @@ mod tests {
                 impl LoadBalancer for LB{
                     type Server = MockServer;
                     type It = IntoIter<SocketAddr>;
+                    type Err = std::io::Error;
                     fn get(&mut self) -> Option<SocketAddr>;
-                    fn add(&mut self, balance_server: MockServer) -> Result<(), Box<dyn Error>>;
-                    fn remove(&mut self, balance_server: MockServer) -> Result<(), Box<dyn Error>>;
-                    fn mark_living(&mut self, address: SocketAddr) -> Result<(), Box<dyn Error>>;
-                    fn mark_dead(&mut self, address: SocketAddr) -> Result<(), Box<dyn Error>>;
+                    fn add(&mut self, balance_server: MockServer) -> Result<(), std::io::Error>;
+                    fn remove(&mut self, balance_server: MockServer) -> Result<(), std::io::Error>;
+                    fn mark_living(&mut self, address: SocketAddr) ->  Result<(), std::io::Error>;
+                    fn mark_dead(&mut self, address: SocketAddr) -> Result<(), std::io::Error>;
                     fn iter(&self) -> IntoIter<SocketAddr>;
                 }
             }

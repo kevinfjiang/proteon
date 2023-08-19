@@ -1,5 +1,4 @@
 use log::error;
-use std::error::Error;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -10,6 +9,22 @@ pub mod transfermethod {
     use crate::lb::backend::loadbalancer::LoadBalancer;
 
     use async_trait::async_trait;
+    use thiserror::Error;
+
+    #[derive(Error, Debug)]
+    pub enum BalanceError<LB: LoadBalancer> {
+        #[error("Load balance error as follows {0}")]
+        LoadBalanceError(LB::Err),
+        #[error("Io error regarding awaiting a lock {0}")]
+        IoError(std::io::Error)
+    }
+
+    impl<LB: LoadBalancer> From<std::io::Error> for BalanceError<LB>{
+        fn from(err: std::io::Error) -> BalanceError<LB>{
+            BalanceError::IoError::<LB>(err)
+        }
+
+    }
 
     #[async_trait]
     pub trait TransferMethod: Send + Sync {
@@ -17,7 +32,7 @@ pub mod transfermethod {
         async fn run_server<LB: LoadBalancer + 'static>(
             &self,
             backend: Arc<RwLock<LB>>,
-        ) -> Result<(), Box<dyn Error>>;
+        ) -> Result<(), BalanceError<LB>>;
     }
 }
 
@@ -41,7 +56,7 @@ pub mod server {
         mut pool: Pool<LB>,
         connect: CM,
         redis_client: Arc<redis::Client>,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<(), LB::Err> {
         let m_backend = Arc::clone(&pool.backend);
         let backend = Arc::clone(&pool.backend);
 

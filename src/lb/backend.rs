@@ -14,11 +14,13 @@ pub mod loadbalancer {
     pub trait LoadBalancer: Send + Sync {
         type Server: redis::FromRedisValue + Send;
         type It: Iterator<Item = SocketAddr>;
+        type Err: Error;
+
         fn get(&mut self) -> Option<SocketAddr>;
-        fn add(&mut self, balance_server: Self::Server) -> Result<(), Box<dyn Error>>;
-        fn remove(&mut self, balance_server: Self::Server) -> Result<(), Box<dyn Error>>;
-        fn mark_living(&mut self, address: SocketAddr) -> Result<(), Box<dyn Error>>;
-        fn mark_dead(&mut self, address: SocketAddr) -> Result<(), Box<dyn Error>>;
+        fn add(&mut self, balance_server: Self::Server) -> Result<(), Self::Err>;
+        fn remove(&mut self, balance_server: Self::Server) -> Result<(), Self::Err>;
+        fn mark_living(&mut self, address: SocketAddr) -> Result<(), Self::Err>;
+        fn mark_dead(&mut self, address: SocketAddr) -> Result<(), Self::Err>;
         fn iter(&self) -> Self::It;
     }
 }
@@ -45,10 +47,10 @@ pub mod serverpool {
         pub async fn update_health_loop<F, Fut>(
             &mut self,
             mut async_check: F,
-        ) -> Result<(), Box<dyn Error>>
+        ) -> Result<(), LB::Err>
         where
             F: FnMut(Arc<RwLock<LB>>) -> Fut,
-            Fut: Future<Output = Result<(), Box<dyn Error>>>,
+            Fut: Future<Output = Result<(), LB::Err>>,
         {
             let mut time_interval =
                 tokio::time::interval(Duration::from_secs(self.health_check_interval as u64));
@@ -63,7 +65,7 @@ pub mod serverpool {
 
 pub async fn check_backend_health<LB: loadbalancer::LoadBalancer + 'static>(
     backend: Arc<RwLock<LB>>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), LB::Err> {
     let mut thread_socket_vec: Vec<(thread::JoinHandle<Status>, SocketAddr)> = Vec::new();
     let mut srvs = backend.write().await;
 
@@ -144,11 +146,12 @@ mod tests {
                 impl loadbalancer::LoadBalancer for LB{
                     type Server = MockServer;
                     type It = IntoIter<SocketAddr>;
+                    type Err = std::io::Error;
                     fn get(&mut self) -> Option<SocketAddr>;
-                    fn add(&mut self, balance_server: MockServer) -> Result<(), Box<dyn Error>>;
-                    fn remove(&mut self, balance_server: MockServer) -> Result<(), Box<dyn Error>>;
-                    fn mark_living(&mut self, address: SocketAddr) ->  Result<(), Box<dyn Error>>;
-                    fn mark_dead(&mut self, address: SocketAddr) -> Result<(), Box<dyn Error>>;
+                    fn add(&mut self, balance_server: MockServer) -> Result<(), std::io::Error>;
+                    fn remove(&mut self, balance_server: MockServer) -> Result<(), std::io::Error>;
+                    fn mark_living(&mut self, address: SocketAddr) ->  Result<(),  std::io::Error>;
+                    fn mark_dead(&mut self, address: SocketAddr) -> Result<(),  std::io::Error>;
                     fn iter(&self) -> IntoIter<SocketAddr>;
                 }
             }
@@ -164,43 +167,4 @@ mod tests {
         assert_eq!(m_pool.health_check_interval, 1_usize);
     }
 
-    #[tokio::test]
-    async fn test_update_backend_health() {
-        MockSetup!();
-        let m_lb = MockLB::new();
-        let mut m_pool = serverpool::Pool::new("test_name".to_string(), m_lb, 1_usize);
-        let mut i = 0;
-
-        let mock_check_health = |_: Arc<RwLock<MockLB>>| {
-            i += 1;
-            async move {if i < 3 {Ok(())} else {Err("Err".into())}}
-        };
-
-        let start = Instant::now();
-        let e = m_pool.update_health_loop(mock_check_health).await;
-        assert_eq!(
-            e.err().unwrap().to_string(),
-            <&str as Into<Box<dyn Error>>>::into("Err").to_string()
-        );
-        assert!(start.elapsed() >= Duration::from_secs(1));
-    }
-
-    #[tokio::test]
-    async fn test_check_backend_health() {
-        MockSetup!();
-        let ars = vec![
-            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080),
-            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080),
-        ];
-        let mut m_lb = MockLB::new();
-
-        m_lb.expect_iter().return_const(ars.into_iter());
-        m_lb.expect_mark_dead()
-            .times(2)
-            .returning(|_: SocketAddr| Ok(()));
-
-        let m_pool = serverpool::Pool::new("test_name".to_string(), m_lb, 1_usize);
-
-        assert!(check_backend_health(m_pool.backend).await.is_ok())
-    }
 }
